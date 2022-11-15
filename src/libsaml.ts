@@ -240,6 +240,12 @@ const libSaml = () => {
     return prefix + camelContent.charAt(0).toUpperCase() + camelContent.slice(1);
   }
 
+  function replaceChild(newChild: Node, oldChild: Node) {
+    const parent = oldChild.parentNode as ParentNode
+    parent.appendChild(newChild)
+    parent.replaceChild(newChild, oldChild);
+  }
+
   return {
 
     createXPath,
@@ -613,13 +619,14 @@ const libSaml = () => {
         if (assertions.length !== 1) {
           throw new Error('ERR_MULTIPLE_ASSERTION');
         }
+        const assertion = assertions[0]
 
         // Perform encryption depends on the setting, default is false
         if (sourceEntitySetting.isAssertionEncrypted) {
 
           const publicKeyPem = utility.getPublicKeyPemFromCertificate(targetEntityMetadata.getX509Certificate(certUse.encrypt));
 
-          xmlenc.encrypt(assertions[0].toString(), {
+          xmlenc.encrypt(assertion.toString(), {
             // use xml-encryption module
             rsa_pub: Buffer.from(publicKeyPem), // public key from certificate
             pem: Buffer.from(`-----BEGIN CERTIFICATE-----${targetEntityMetadata.getX509Certificate(certUse.encrypt)}-----END CERTIFICATE-----`),
@@ -634,8 +641,10 @@ const libSaml = () => {
               return reject(new Error('ERR_UNDEFINED_ENCRYPTED_ASSERTION'));
             }
             const { encryptedAssertion: encAssertionPrefix } = sourceEntitySetting.tagPrefix;
-            const encryptAssertionNode = new dom().parseFromString(`<${encAssertionPrefix}:EncryptedAssertion xmlns:${encAssertionPrefix}="${namespace.names.assertion}">${res}</${encAssertionPrefix}:EncryptedAssertion>`);
-            doc.replaceChild(encryptAssertionNode, assertions[0]);
+            const encryptAssertionNode = new dom().parseFromString(`<xml><${encAssertionPrefix}:EncryptedAssertion xmlns:${encAssertionPrefix}="${namespace.names.assertion}">${res}</${encAssertionPrefix}:EncryptedAssertion></xml>`).firstChild as Node;
+
+            replaceChild(encryptAssertionNode, assertion)
+
             return resolve(utility.base64Encode(doc.toString()));
           });
         } else {
@@ -667,6 +676,8 @@ const libSaml = () => {
         if (encryptedAssertions.length !== 1) {
           throw new Error('ERR_MULTIPLE_ASSERTION');
         }
+        const encryptedAssertion = encryptedAssertions[0]
+
         return xmlenc.decrypt(encryptedAssertions[0].toString(), {
           key: utility.readPrivateKey(hereSetting.encPrivateKey, hereSetting.encPrivateKeyPass),
         }, (err, res) => {
@@ -677,8 +688,10 @@ const libSaml = () => {
           if (!res) {
             return reject(new Error('ERR_UNDEFINED_ENCRYPTED_ASSERTION'));
           }
-          const assertionNode = new dom().parseFromString(res);
-          xml.replaceChild(assertionNode, encryptedAssertions[0]);
+          const assertionNode = new dom().parseFromString(`<xml>${res}</xml>`).firstChild as Node;
+
+          replaceChild(assertionNode, encryptedAssertion)
+
           return resolve([xml.toString(), res]);
         });
       });
